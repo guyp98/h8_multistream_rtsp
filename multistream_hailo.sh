@@ -1,8 +1,8 @@
 #!/bin/bash
 
 base_port=5000  # Set the base port number
-hef_path="/home/guyp/work_space/github/h8/yolov5m_nv12.hef"
-pp_path="/home/guyp/work_space/github/h8/libyolo_hailortpp_post.so"
+hef_path="/home/guyp/work_space/github/h8/resources/yolov5m_nv12.hef"
+pp_path="/home/guyp/work_space/github/h8/resources/libyolo_hailortpp_post.so"
 # hef_path="/local/workspace/tappas/apps/h8/gstreamer/general/detection/resources/yolov5m_nv12.hef"
 # pp_path="/local/workspace/tappas/apps/h8/gstreamer/libs/post_processes//libyolo_hailortpp_post.so"
 number_of_devices=1
