@@ -1,3 +1,8 @@
+#include "hailo_objects.hpp"
+#include "gst_hailo_meta.hpp"
+#include "hailo/hailort.h"
+#include "tensor_meta.hpp"
+
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -8,6 +13,8 @@ bool print_gst_launch_only;
 std::string input_source;
 static gboolean waiting_eos = FALSE;
 static gboolean caught_sigint = FALSE;
+bool show_debug = false;
+
 
 static void sigint_restore(void)
 {
@@ -124,11 +131,11 @@ GstFlowReturn wait_for_end_of_pipeline(GstElement *pipeline)
     return ret;
 }
 
-void create_pipline(int base_port, int number_of_devices, std::string hef_path, std::string pp_path, std::string& play_pipeline) {
+void create_pipline(int number_of_sources, int base_port, int number_of_devices, std::string hef_path, std::string pp_path, std::string& play_pipeline) {
     std::stringstream concatenated_pipeline;
 
     // Loop to concatenate the string four times
-    for (int i = 1; i < 5; i++) {
+    for (int i = 1; i < number_of_sources+1; i++) {
         int current_port = base_port + i - 1;
         int vdevice_key = (i % number_of_devices) + 1;
 
@@ -148,16 +155,16 @@ void create_pipline(int base_port, int number_of_devices, std::string hef_path, 
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! videoconvert n-threads=2 qos=false "
             "! video/x-raw, format=NV12 "
-            "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
-            "! hailonet hef-path=" + hef_path +
+            "! queue name=hailonet"+ std::to_string(i) +"_queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
+            "! hailonet name=hailonet"+std::to_string(i)+" hef-path=" + hef_path +
             " batch-size=1 nms-score-threshold=0.3 nms-iou-threshold=0.60 output-format-type=HAILO_FORMAT_TYPE_FLOAT32 vdevice-key="+ std::to_string(vdevice_key) +" "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
-            "! hailofilter function-name=yolov5 so-path=" + pp_path + " config-path=null qos=false "
+            "! hailofilter name=hailofilter"+std::to_string(i)+" function-name=yolov5 so-path=" + pp_path + " config-path=null qos=false "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! hailooverlay qos=false "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! videoconvert "
-            "! fpsdisplaysink video-sink=autovideosink text-overlay=false sync=false"
+            "! fpsdisplaysink video-sink=autovideosink text-overlay=true sync=false silent=false "
             "        "
             ;
         concatenated_pipeline << current_pipeline;
@@ -168,8 +175,43 @@ void create_pipline(int base_port, int number_of_devices, std::string hef_path, 
 
 
 }   
+void get_tensors_from_meta(GstBuffer *buffer, HailoROIPtr roi)
+{
+    gpointer state = NULL;
+    GstMeta *meta;
+    GstParentBufferMeta *pmeta;
+    GstMapInfo info;
+    while ((meta = gst_buffer_iterate_meta_filtered(buffer, &state, GST_PARENT_BUFFER_META_API_TYPE)))
+    {
+        pmeta = reinterpret_cast<GstParentBufferMeta *>(meta);
+        (void)gst_buffer_map(pmeta->buffer, &info, GST_MAP_READWRITE);
+        // check if the buffer has tensor metadata
+        if (!gst_buffer_get_meta(pmeta->buffer, g_type_from_name(TENSOR_META_API_NAME)))
+        {
+            gst_buffer_unmap(pmeta->buffer, &info);
+            continue;
+        }
+        const hailo_vstream_info_t vstream_info = reinterpret_cast<GstHailoTensorMeta *>(gst_buffer_get_meta(pmeta->buffer, g_type_from_name(TENSOR_META_API_NAME)))->info;
+        roi->add_tensor(std::make_shared<HailoTensor>(reinterpret_cast<uint8_t *>(info.data), vstream_info));
+        gst_buffer_unmap(pmeta->buffer, &info);
+    }
+}
+static GstPadProbeReturn probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer user_data) {
+    int source_number = GPOINTER_TO_INT(user_data);
+    GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+    if (show_debug) {
+        guint size = gst_buffer_get_size(buffer);
+        g_print("Buffer size: %u bytes\n", size);
+        g_print("Received buffer from hailofilter source %d\n", source_number);
+    }
+    
+    // std::cout << "Received buffer from hailofilter source " << std::to_string(source_number) << std::endl;
 
+    HailoROIPtr hailo_roi = get_hailo_main_roi(buffer, true);
+    get_tensors_from_meta(buffer, hailo_roi);
 
+    return GST_PAD_PROBE_OK;
+}
 
 int main(int argc, char* argv[]) {
     add_sigint_handler();
@@ -178,9 +220,10 @@ int main(int argc, char* argv[]) {
     std::string pp_path = "/home/guyp/work_space/github/h8/resources/libyolo_hailortpp_post.so";
     int base_port = 5000;
     int number_of_devices = 1;
+    int number_of_sources = 1;
     
     std::string str_pipline;
-    create_pipline(base_port, number_of_devices, hef_path, pp_path, str_pipline);
+    create_pipline(number_of_sources, base_port, number_of_devices, hef_path, pp_path, str_pipline);
     
     std::cout << str_pipline << std::endl;
 
@@ -194,7 +237,21 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
+    // Add probe to listen to buffers from hailofilter source
+    for(int i = 1; i < number_of_sources+1; i++) {
+        GstElement *hailofilter = gst_bin_get_by_name(GST_BIN(pipeline), ("hailofilter" + std::to_string(i)).c_str());
+        if (!hailofilter) {
+            g_printerr("hailofilter not found\n");
+            return -1;
+        }
+        GstPad *srcpad = gst_element_get_static_pad(hailofilter, "src");
+        gst_pad_add_probe(srcpad, GST_PAD_PROBE_TYPE_BUFFER, probe_cb, GINT_TO_POINTER(i), NULL);
+        gst_object_unref(srcpad);
+    }
 
+    
+
+    //start playing
     std::cout << "Parsed pipeline." << std::endl;
     std::cout << "Setting state to playing." << std::endl;
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
@@ -202,6 +259,8 @@ int main(int argc, char* argv[]) {
     GstFlowReturn ret = wait_for_end_of_pipeline(pipeline);
     std::cout << "pipeline endedd." << std::endl;
     
+
+
     // Free resources
     gst_element_set_state(pipeline, GST_STATE_NULL);
     gst_object_unref(pipeline);

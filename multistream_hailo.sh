@@ -22,7 +22,7 @@ pipeline_template="udpsrc port=%d address=127.0.0.1 \
 ! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 \
 ! videoconvert n-threads=2 qos=false \
 ! video/x-raw, format=NV12 \
-! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 \
+! queue name=hailonet%d_queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 \
 ! hailonet hef-path=$hef_path \
 batch-size=1 nms-score-threshold=0.3 nms-iou-threshold=0.60 output-format-type=HAILO_FORMAT_TYPE_FLOAT32 vdevice-key=%d \
 ! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 \
@@ -38,8 +38,7 @@ batch-size=1 nms-score-threshold=0.3 nms-iou-threshold=0.60 output-format-type=H
 for ((i=1; i<5; i++)); do
     current_port=$((base_port + i - 1))
     vdevice_key=$(((i % number_of_devices) + 1 ))
-    echo $vdevice_key
-    current_pipeline=$(printf "$pipeline_template" "$current_port" "$vdevice_key")
+    current_pipeline=$(printf "$pipeline_template" "$current_port" "$i" "$vdevice_key")
     concatenated_pipeline+="$current_pipeline"
 done
 
