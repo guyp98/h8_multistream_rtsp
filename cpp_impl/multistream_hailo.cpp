@@ -228,7 +228,7 @@ static GstPadProbeReturn probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer u
     for(const auto& obj: hailo_roi->get_objects()){
         if(obj->get_type() == HAILO_DETECTION){
             HailoDetectionPtr detection = std::dynamic_pointer_cast<HailoDetection>(obj);
-            std::cout << detection->get_label() << " detected" << std::endl;
+            std::cout << detection->get_label() << " detected" << " in stream" << source_number << std::endl;
         }
     }
 
@@ -242,7 +242,7 @@ int main(int argc, char* argv[]) {
     std::string pp_path = "../resources/libyolo_hailortpp_post.so";
     int base_port = 5000;
     int number_of_devices = 1;
-    int number_of_sources = 1;
+    int number_of_sources = 4;
     
     std::string str_pipline;
     create_pipline(number_of_sources, base_port, number_of_devices, hef_path, pp_path, str_pipline);
@@ -250,7 +250,8 @@ int main(int argc, char* argv[]) {
     std::cout <<  "gst-launch-1.0 -v " << str_pipline << std::endl;
     
     if(show_debug)
-        g_setenv("GST_DEBUG", "*:3", TRUE); 
+        g_setenv("GST_DEBUG", "*:3", TRUE);
+         
     gst_init(&argc, &argv);
     std::cout << "Created pipeline string." << std::endl;
     GstElement *pipeline = gst_parse_launch(str_pipline.c_str(), NULL);
