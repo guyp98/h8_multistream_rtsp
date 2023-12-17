@@ -3,6 +3,7 @@
 #include "hailo/hailort.h"
 #include "tensor_meta.hpp"
 
+
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -70,9 +71,6 @@ static gboolean check_sigint(GstElement * pipeline)
     return FALSE;
   }
 }
-
-
-
 
 
 GstFlowReturn wait_for_end_of_pipeline(GstElement *pipeline)
@@ -161,7 +159,7 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! hailofilter name=hailofilter"+std::to_string(i)+" function-name=yolov5 so-path=" + pp_path + " config-path=null qos=false "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
-            "! hailooverlay qos=false "
+            "! hailooverlay name=hailooverlay"+std::to_string(i)+" qos=false "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! videoconvert "
             "! fpsdisplaysink video-sink=autovideosink text-overlay=true sync=false silent=false "
@@ -170,7 +168,6 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
         concatenated_pipeline << current_pipeline;
     }
 
-    play_pipeline = "gst-launch-1.0 -v ";
     play_pipeline += concatenated_pipeline.str();
 
 
@@ -196,19 +193,44 @@ void get_tensors_from_meta(GstBuffer *buffer, HailoROIPtr roi)
         gst_buffer_unmap(pmeta->buffer, &info);
     }
 }
+
 static GstPadProbeReturn probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer user_data) {
     int source_number = GPOINTER_TO_INT(user_data);
     GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
-    if (show_debug) {
-        guint size = gst_buffer_get_size(buffer);
-        g_print("Buffer size: %u bytes\n", size);
-        g_print("Received buffer from hailofilter source %d\n", source_number);
+    if(show_debug){
+        if (buffer) {
+            
+            guint size = gst_buffer_get_size(buffer);
+            g_print("Buffer size: %u bytes\n", size);
+            g_print("Received buffer from hailofilter source %d\n", source_number);
+            
+
+            // Check buffer type
+            GstCaps *caps = gst_pad_get_current_caps(pad);
+            if (caps) {
+                gchar *caps_string = gst_caps_to_string(caps);
+                g_print("Buffer type: %s\n", caps_string);
+                g_free(caps_string);
+                gst_caps_unref(caps);
+            } else {
+                g_print("Failed to get buffer type\n");
+            }
+            g_print("****\n");
+            
+        } else {
+            g_print("Received NULL buffer from hailofilter source %d\n", source_number);
+        }
     }
     
-    // std::cout << "Received buffer from hailofilter source " << std::to_string(source_number) << std::endl;
-
-    HailoROIPtr hailo_roi = get_hailo_main_roi(buffer, true);
+    
+    HailoROIPtr hailo_roi = get_hailo_main_roi(buffer, false);
     get_tensors_from_meta(buffer, hailo_roi);
+    for(const auto& obj: hailo_roi->get_objects()){
+        if(obj->get_type() == HAILO_DETECTION){
+            HailoDetectionPtr detection = std::dynamic_pointer_cast<HailoDetection>(obj);
+            std::cout << detection->get_label() << " detected" << std::endl;
+        }
+    }
 
     return GST_PAD_PROBE_OK;
 }
@@ -216,8 +238,8 @@ static GstPadProbeReturn probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer u
 int main(int argc, char* argv[]) {
     add_sigint_handler();
 
-    std::string hef_path = "/home/guyp/work_space/github/h8/resources/yolov5m_nv12.hef";
-    std::string pp_path = "/home/guyp/work_space/github/h8/resources/libyolo_hailortpp_post.so";
+    std::string hef_path = "../resources/yolov5m_nv12.hef";
+    std::string pp_path = "../resources/libyolo_hailortpp_post.so";
     int base_port = 5000;
     int number_of_devices = 1;
     int number_of_sources = 1;
@@ -225,10 +247,10 @@ int main(int argc, char* argv[]) {
     std::string str_pipline;
     create_pipline(number_of_sources, base_port, number_of_devices, hef_path, pp_path, str_pipline);
     
-    std::cout << str_pipline << std::endl;
-
+    std::cout <<  "gst-launch-1.0 -v " << str_pipline << std::endl;
     
-    // g_setenv("GST_DEBUG", "*:3", TRUE); 
+    if(show_debug)
+        g_setenv("GST_DEBUG", "*:3", TRUE); 
     gst_init(&argc, &argv);
     std::cout << "Created pipeline string." << std::endl;
     GstElement *pipeline = gst_parse_launch(str_pipline.c_str(), NULL);

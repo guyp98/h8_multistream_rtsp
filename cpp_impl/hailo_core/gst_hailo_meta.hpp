@@ -14,6 +14,7 @@ G_BEGIN_DECLS
 // https://gstreamer.freedesktop.org/documentation/gstreamer/gstmeta.html?gi-language=c#gst_meta_register
 #define GST_HAILO_META_API_TYPE (gst_hailo_meta_api_get_type())
 #define GST_HAILO_META_INFO (gst_hailo_meta_get_info())
+#define GST_HAILO_META_API_NAME "GstHailoMetaAPI"
 
 typedef struct _GstHailoMeta GstHailoMeta;
 

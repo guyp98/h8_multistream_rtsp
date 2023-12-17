@@ -8,6 +8,6 @@ cd build
 
 cmake ..
 
-make
+cmake --build .
 
 

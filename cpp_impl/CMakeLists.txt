@@ -16,4 +16,4 @@ set(hailo_utils
 
 add_executable(multistream_hailo multistream_hailo.cpp ${hailo_utils})
 
-target_link_libraries(multistream_hailo PUBLIC ${GSTREAMER_LIBRARIES}) 
+target_link_libraries(multistream_hailo PUBLIC ${GSTREAMER_LIBRARIES})

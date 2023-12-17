@@ -151,8 +151,8 @@ gboolean gst_buffer_remove_hailo_meta(GstBuffer *buffer)
 HailoROIPtr get_hailo_main_roi(GstBuffer *buffer, gboolean create_if_missing)
 {
     
-    GstHailoMeta *meta = gst_buffer_get_hailo_meta(buffer); 
-    
+    // GstHailoMeta *meta = gst_buffer_get_hailo_meta(buffer); 
+    GstHailoMeta *meta = reinterpret_cast<GstHailoMeta*>(gst_buffer_get_meta(buffer, g_type_from_name(GST_HAILO_META_API_NAME)));
     HailoROIPtr roi = nullptr;
     if (meta)
     {
