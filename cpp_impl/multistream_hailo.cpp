@@ -143,7 +143,10 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
         int current_port = base_port + i - 1;
         int vdevice_key = (i % number_of_devices) + 1;
 
-        std::string sink = "! fpsdisplaysink video-sink=autovideosink text-overlay=true sync=false silent=false ";
+        std::string sink =  "! hailooverlay name=hailooverlay"+std::to_string(i)+" qos=false "
+                            "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
+                            "! videoconvert "
+                            "! fpsdisplaysink video-sink=autovideosink text-overlay=true sync=false silent=false ";
         if(read_from == Buffer_from_piplne_method::appsink)
             sink = "! appsink name=appsink" + std::to_string(i) + " emit-signals=true max-buffers=1 drop=true ";            
         
@@ -169,9 +172,6 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! hailofilter name=hailofilter"+std::to_string(i)+" function-name=yolov5 so-path=" + pp_path + " config-path=null qos=false "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
-            "! hailooverlay name=hailooverlay"+std::to_string(i)+" qos=false "
-            "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
-            "! videoconvert "
             ""+sink+""
             "        "
             ;
@@ -279,6 +279,7 @@ void set_callbacks(GstElement *pipeline, int number_of_sources, Buffer_from_pipl
             GstPad *srcpad = gst_element_get_static_pad(hailofilter, "src");
             gst_pad_add_probe(srcpad, GST_PAD_PROBE_TYPE_BUFFER, probe_cb, GINT_TO_POINTER(i), NULL);
             gst_object_unref(srcpad);
+            gst_object_unref(hailofilter);
         }
         else if(method == Buffer_from_piplne_method::appsink){
             GstElement *appsink = gst_bin_get_by_name(GST_BIN(pipeline), ("appsink" + std::to_string(i)).c_str());
@@ -287,6 +288,7 @@ void set_callbacks(GstElement *pipeline, int number_of_sources, Buffer_from_pipl
             }
             //set callback to read buffers from pipline when they are ready
             g_signal_connect(GST_APP_SINK(appsink), "new-sample", G_CALLBACK(new_sample_callback), GINT_TO_POINTER(i));
+            gst_object_unref(appsink);
         }
     }
 }
@@ -299,7 +301,7 @@ int main(int argc, char* argv[]) {
     int base_port = 5000;
     int number_of_devices = 1;
     int number_of_sources = 4;
-    Buffer_from_piplne_method read_from = Buffer_from_piplne_method::appsink;
+    Buffer_from_piplne_method read_from = Buffer_from_piplne_method::probe;
 
     std::string str_pipline;
     create_pipline(number_of_sources, base_port, number_of_devices, hef_path, pp_path, read_from, str_pipline);
