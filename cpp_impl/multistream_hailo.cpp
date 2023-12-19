@@ -9,12 +9,18 @@
 #include <vector>
 #include <string>
 #include <gst/gst.h>
+#include <gst/app/gstappsink.h>
 
 bool print_gst_launch_only;
 std::string input_source;
 static gboolean waiting_eos = FALSE;
 static gboolean caught_sigint = FALSE;
 bool show_debug = false;
+
+enum class Buffer_from_piplne_method {
+    probe,
+    appsink
+};
 
 
 static void sigint_restore(void)
@@ -129,7 +135,7 @@ GstFlowReturn wait_for_end_of_pipeline(GstElement *pipeline)
     return ret;
 }
 
-void create_pipline(int number_of_sources, int base_port, int number_of_devices, std::string hef_path, std::string pp_path, std::string& play_pipeline) {
+void create_pipline(int number_of_sources, int base_port, int number_of_devices, std::string hef_path, std::string pp_path, Buffer_from_piplne_method read_from, std::string& play_pipeline) {
     std::stringstream concatenated_pipeline;
 
     // Loop to concatenate the string four times
@@ -137,6 +143,10 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
         int current_port = base_port + i - 1;
         int vdevice_key = (i % number_of_devices) + 1;
 
+        std::string sink = "! fpsdisplaysink video-sink=autovideosink text-overlay=true sync=false silent=false ";
+        if(read_from == Buffer_from_piplne_method::appsink)
+            sink = "! appsink name=appsink" + std::to_string(i) + " emit-signals=true max-buffers=1 drop=true ";            
+        
         std::string current_pipeline = 
             "udpsrc port="+ std::to_string(current_port) +" address=127.0.0.1 "
             "! application/x-rtp,encoding-name=H264 "
@@ -162,7 +172,7 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
             "! hailooverlay name=hailooverlay"+std::to_string(i)+" qos=false "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! videoconvert "
-            "! fpsdisplaysink video-sink=autovideosink text-overlay=true sync=false silent=false "
+            ""+sink+""
             "        "
             ;
         concatenated_pipeline << current_pipeline;
@@ -235,6 +245,52 @@ static GstPadProbeReturn probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer u
     return GST_PAD_PROBE_OK;
 }
 
+static GstFlowReturn new_sample_callback(GstAppSink *sink, gpointer user_data) {
+    GstSample *sample = gst_app_sink_pull_sample(sink);
+    GstBuffer *buffer = gst_sample_get_buffer(sample);
+    GstCaps *caps = gst_sample_get_caps(sample);
+    GstStructure *structure = gst_caps_get_structure(caps, 0);
+    int source_number = GPOINTER_TO_INT(user_data);
+    if(show_debug){
+        g_print("Received buffer from appsink source %d\n", source_number);
+        g_print("Buffer type: %s\n", gst_structure_get_name(structure));
+        g_print("****\n");
+    }
+    
+    HailoROIPtr hailo_roi = get_hailo_main_roi(buffer, false);
+    get_tensors_from_meta(buffer, hailo_roi);
+    for(const auto& obj: hailo_roi->get_objects()){
+        if(obj->get_type() == HAILO_DETECTION){
+            HailoDetectionPtr detection = std::dynamic_pointer_cast<HailoDetection>(obj);
+            std::cout << detection->get_label() << " detected" << " in stream" << source_number << std::endl;
+        }
+    }
+    gst_sample_unref(sample);
+    return GST_FLOW_OK;
+}
+
+void set_callbacks(GstElement *pipeline, int number_of_sources, Buffer_from_piplne_method method = Buffer_from_piplne_method::probe){
+    for(int i = 1; i < number_of_sources+1; i++) {
+        if(method == Buffer_from_piplne_method::probe){
+            GstElement *hailofilter = gst_bin_get_by_name(GST_BIN(pipeline), ("hailofilter" + std::to_string(i)).c_str());
+            if (!hailofilter) {
+                g_printerr("hailofilter not found\n");
+            }
+            GstPad *srcpad = gst_element_get_static_pad(hailofilter, "src");
+            gst_pad_add_probe(srcpad, GST_PAD_PROBE_TYPE_BUFFER, probe_cb, GINT_TO_POINTER(i), NULL);
+            gst_object_unref(srcpad);
+        }
+        else if(method == Buffer_from_piplne_method::appsink){
+            GstElement *appsink = gst_bin_get_by_name(GST_BIN(pipeline), ("appsink" + std::to_string(i)).c_str());
+            if (!appsink) {
+                g_printerr("appsink not found\n");
+            }
+            //set callback to read buffers from pipline when they are ready
+            g_signal_connect(GST_APP_SINK(appsink), "new-sample", G_CALLBACK(new_sample_callback), GINT_TO_POINTER(i));
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
     add_sigint_handler();
 
@@ -243,9 +299,10 @@ int main(int argc, char* argv[]) {
     int base_port = 5000;
     int number_of_devices = 1;
     int number_of_sources = 4;
-    
+    Buffer_from_piplne_method read_from = Buffer_from_piplne_method::appsink;
+
     std::string str_pipline;
-    create_pipline(number_of_sources, base_port, number_of_devices, hef_path, pp_path, str_pipline);
+    create_pipline(number_of_sources, base_port, number_of_devices, hef_path, pp_path, read_from, str_pipline);
     
     std::cout <<  "gst-launch-1.0 -v " << str_pipline << std::endl;
     
@@ -260,17 +317,8 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // Add probe to listen to buffers from hailofilter source
-    for(int i = 1; i < number_of_sources+1; i++) {
-        GstElement *hailofilter = gst_bin_get_by_name(GST_BIN(pipeline), ("hailofilter" + std::to_string(i)).c_str());
-        if (!hailofilter) {
-            g_printerr("hailofilter not found\n");
-            return -1;
-        }
-        GstPad *srcpad = gst_element_get_static_pad(hailofilter, "src");
-        gst_pad_add_probe(srcpad, GST_PAD_PROBE_TYPE_BUFFER, probe_cb, GINT_TO_POINTER(i), NULL);
-        gst_object_unref(srcpad);
-    }
+    //set callback to read buffers from pipline
+    set_callbacks(pipeline, number_of_sources, read_from);
 
     
 
