@@ -4,6 +4,16 @@
 
 This repository includes scripts and examples for testing a Real-Time Streaming Protocol (RTSP) send script and receiving the stream using the Hailo-8 multistream solution. The provided instructions guide you through setting up and executing the RTSP send script and the multistream Hailo-8 receiver script. For users preferring C++, an alternative method is available with detailed build and run instructions.
 
+## Prerequisites
+
+Before using this repository, ensure the following prerequisites are met:
+
+- [Tappas](https://github.com/hailo-ai/tappas) installed. Follow the installation instructions in the Tappas documentation.
+
+  To run Tappas from prebuilt binaries in a Docker container, refer to the [Docker installation guide](https://github.com/hailo-ai/tappas/blob/master/docs/installation/docker-install.rst).
+
+  To build Tappas locally, follow the instructions in the [Tappas documentation](https://github.com/hailo-ai/tappas/blob/master/docs/installation/docker-install.rst).
+
 ## Testing Procedure
 
 ### first run the rtsp send script:
@@ -11,7 +21,7 @@ This repository includes scripts and examples for testing a Real-Time Streaming 
 ./send_rtsp.sh
 ```
 
-### second run the recive code:
+### second to thecive the streames you have two options:
 
 1. Multistream Hailo-8 Receiver Script:
 Run the multistream Hailo-8 receiver script to receive and process the RTSP stream.
