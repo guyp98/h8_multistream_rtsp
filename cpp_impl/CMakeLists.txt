@@ -8,13 +8,13 @@ pkg_check_modules(GSTREAMER REQUIRED gstreamer-1.0)
 
 include_directories(
     ${GSTREAMER_INCLUDE_DIRS}
-    /home/guyp/SDK/hailo_ai_sw_suite/artifacts/tappas/core/hailo/general/
-    /opt/hailo/tappas/include/gsthailometa/
-    /usr/include/gstreamer-1.0/gst/hailo/   
+    /home/guyp/SDK/hailo_ai_sw_suite/artifacts/tappas/core/hailo/general/ #hailo_objects.hpp 
+    /opt/hailo/tappas/include/gsthailometa/ #gst_hailo_meta.hpp
+    /usr/include/gstreamer-1.0/gst/hailo/ #tensor_meta.hpp
     )
 
 link_directories(
-    /opt/hailo/tappas/lib/x86_64-linux-gnu/
+    /opt/hailo/tappas/lib/x86_64-linux-gnu/ #libgsthailometa.so
 )
     
 add_executable(multistream_hailo multistream_hailo.cpp)
