@@ -42,7 +42,7 @@ Run the multistream Hailo-8 executable.
 ```
 ./build/multistream_hailo
 ```
-#### C++ Implementation Details
+#### C++ Implementation Details (Important)
 The C++ example features a callback function that is invoked for every frame passing through the processing pipeline. This callback mechanism ensures that custom actions can be performed on each frame. Two distinct methods are available for capturing frames, namely "probs" and "appink." Users can specify their preferred mode by adjusting the "read_from" variable within the code.
 
 Feel free to explore and customize the provided scripts and examples according to your specific requirements
