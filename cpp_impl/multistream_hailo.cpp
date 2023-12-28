@@ -143,19 +143,19 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
         int current_port = base_port + i - 1;
         int vdevice_key = (i % number_of_devices) + 1;
 
-        std::string sink =  "queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
+        std::string sink =  "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
                             "! hailooverlay name=hailooverlay"+std::to_string(i)+" qos=false "
                             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
                             "! videoconvert "
-                            "! fpsdisplaysink video-sink=autovideosink text-overlay=true sync=false silent=false ";
+                            "! fpsdisplaysink name=fpsdisplaysink"+std::to_string(i)+" video-sink=autovideosink text-overlay=true sync=false silent=false ";
+        
         if(read_from == Buffer_from_piplne_method::appsink)
-            sink = 
-                "tee name=t"+std::to_string(i)+" "
-                "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
-                "! appsink name=appsink" + std::to_string(i) + " emit-signals=true max-buffers=1 drop=true "
-                "t"+std::to_string(i)+". "
-                "! "+sink+""
-                ;
+            sink =  "! tee name=t"+std::to_string(i)+" "
+                    "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
+                    "! appsink name=appsink" + std::to_string(i) + " emit-signals=true max-buffers=1 drop=true "
+                    "t"+std::to_string(i)+". "
+                    ""+sink+""
+                    ;
 
 
         
@@ -174,13 +174,13 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
             "! video/x-raw, pixel-aspect-ratio=1/1 "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! videoconvert n-threads=2 qos=false "
-            "! video/x-raw, format=NV12 "
+            "! video/x-raw, format=NV12, video/x-raw,width=1920, height=1080 "
             "! queue name=hailonet"+ std::to_string(i) +"_queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! hailonet name=hailonet"+std::to_string(i)+" hef-path=" + hef_path +
             " batch-size=1 nms-score-threshold=0.3 nms-iou-threshold=0.60 output-format-type=HAILO_FORMAT_TYPE_FLOAT32 vdevice-key="+ std::to_string(vdevice_key) +" "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! hailofilter name=hailofilter"+std::to_string(i)+" function-name=yolov5 so-path=" + pp_path + " config-path=null qos=false "
-            "! "+sink+""
+            ""+sink+""
             "        "
             ;
         concatenated_pipeline << current_pipeline;
@@ -298,18 +298,25 @@ void set_callbacks(GstElement *pipeline, int number_of_sources, Buffer_from_pipl
             g_signal_connect(GST_APP_SINK(appsink), "new-sample", G_CALLBACK(new_sample_callback), GINT_TO_POINTER(i));
             gst_object_unref(appsink);
         }
+        // // recive fps-measurements from fpsdisplaysink 
+        // GstElement *fpsdisplaysink = gst_bin_get_by_name(GST_BIN(pipeline), "fpsdisplaysink"+std::to_string(i).c_str());
+        // if (!fpsdisplaysink) {
+        //     g_printerr("fpsdisplaysink not found\n");
+        // }
+
+
     }
 }
 
 int main(int argc, char* argv[]) {
     add_sigint_handler();
 
-    std::string hef_path = "../resources/yolov5m_nv12.hef";
+    std::string hef_path = "../resources/yolov5m_wo_spp_60p_nv12_fhd.hef";
     std::string pp_path = "../resources/libyolo_hailortpp_post.so";
     int base_port = 5000;
     int number_of_devices = 1;
-    int number_of_sources = 4;
-    Buffer_from_piplne_method read_from = Buffer_from_piplne_method::appsink;
+    int number_of_sources = 1;
+    Buffer_from_piplne_method read_from = Buffer_from_piplne_method::probe;
 
     std::string str_pipline;
     create_pipline(number_of_sources, base_port, number_of_devices, hef_path, pp_path, read_from, str_pipline);
