@@ -2,7 +2,9 @@
 #include "gst_hailo_meta.hpp"
 #include "hailo/hailort.h"
 #include "tensor_meta.hpp"
-
+#include "hailomat.hpp"
+#include "image.hpp"
+#include "overlay.hpp"
 
 #include <iostream>
 #include <sstream>
@@ -10,6 +12,8 @@
 #include <string>
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
+
+
 
 bool print_gst_launch_only;
 std::string input_source;
@@ -144,8 +148,8 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
         int vdevice_key = (i % number_of_devices) + 1;
 
         std::string sink =  "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
-                            "! hailooverlay name=hailooverlay"+std::to_string(i)+" qos=false "
-                            "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
+                            // "! hailooverlay name=hailooverlay"+std::to_string(i)+" qos=false "
+                            // "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
                             "! videoconvert "
                             "! fpsdisplaysink name=fpsdisplaysink"+std::to_string(i)+" video-sink=autovideosink text-overlay=true sync=false silent=false ";
         
@@ -174,7 +178,7 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
             "! video/x-raw, pixel-aspect-ratio=1/1 "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! videoconvert n-threads=2 qos=false "
-            "! video/x-raw, format=NV12, video/x-raw,width=1920, height=1080 "
+            "! video/x-raw, format=NV12 "
             "! queue name=hailonet"+ std::to_string(i) +"_queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! hailonet name=hailonet"+std::to_string(i)+" hef-path=" + hef_path +
             " batch-size=1 nms-score-threshold=0.3 nms-iou-threshold=0.60 output-format-type=HAILO_FORMAT_TYPE_FLOAT32 vdevice-key="+ std::to_string(vdevice_key) +" "
@@ -211,10 +215,46 @@ void get_tensors_from_meta(GstBuffer *buffer, HailoROIPtr roi)
         gst_buffer_unmap(pmeta->buffer, &info);
     }
 }
+std::shared_ptr<HailoMat> map_buffer_to_hailo_mat(GstBuffer *buffer, GstPad *pad)
+    {
+        //copyed from // std::shared_ptr<HailoMat> hmat = get_mat_by_format(buffer, video_info, line_thickness, font_thickness);
+        gint line_thickness = 5;
+        gint font_thickness = 5;
+        GstVideoInfo *video_info = gst_video_info_new();
+        GstCaps *caps = gst_pad_get_current_caps(pad);
+        gst_video_info_from_caps(video_info, caps);
+
+        std::shared_ptr<HailoMat> hmat = nullptr;
+        GstVideoFrame frame;
+        bool success = gst_video_frame_map(&frame, video_info, buffer, GstMapFlags(GST_MAP_READ | GST_MAP_WRITE));
+        if (!success)
+        {
+            gst_video_frame_unmap(&frame);
+            GST_CAT_ERROR(GST_CAT_DEFAULT, "Failed to map buffer to video frame, Buffer may be not writable");
+            throw std::runtime_error("Failed to map buffer to video frame, Buffer may be not writable");
+        }
+        uint8_t *plane0_data = (uint8_t *)GST_VIDEO_FRAME_PLANE_DATA(&frame, 0);
+        hmat = std::make_shared<HailoNV12Mat>(plane0_data,
+                                              GST_VIDEO_INFO_HEIGHT(video_info),
+                                              GST_VIDEO_INFO_WIDTH(video_info),
+                                              GST_VIDEO_INFO_PLANE_STRIDE(video_info, 0),
+                                              GST_VIDEO_INFO_PLANE_STRIDE(video_info, 1),
+                                              line_thickness,
+                                              font_thickness,
+                                              plane0_data,
+                                              GST_VIDEO_FRAME_PLANE_DATA(&frame, 1));
+        gst_video_frame_unmap(&frame);
+        gst_video_info_free(video_info);
+        return hmat;
+    }
 
 static GstPadProbeReturn probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer user_data) {
     int source_number = GPOINTER_TO_INT(user_data);
     GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+    buffer = gst_buffer_make_writable (buffer);
+    
+    std::shared_ptr<HailoMat> hmat = map_buffer_to_hailo_mat(buffer, pad );
+    
     if(show_debug){
         if (buffer) {
             
@@ -242,14 +282,23 @@ static GstPadProbeReturn probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer u
     
     
     HailoROIPtr hailo_roi = get_hailo_main_roi(buffer, false);
-    get_tensors_from_meta(buffer, hailo_roi);
+    gfloat landmark_point_radius = 20.0;
+    gboolean show_confidence = TRUE;
+    gboolean local_gallery = TRUE;
+    guint mask_overlay_n_threads = 3;
+    overlay_status_t ret = OVERLAY_STATUS_UNINITIALIZED;
+    ret = draw_all(*hmat.get(), hailo_roi, landmark_point_radius, show_confidence, local_gallery, mask_overlay_n_threads);
+    if (ret != OVERLAY_STATUS_OK)
+    {
+        GST_ERROR("Failed to draw overlay");
+    }
+    // get_tensors_from_meta(buffer, hailo_roi);
     for(const auto& obj: hailo_roi->get_objects()){
         if(obj->get_type() == HAILO_DETECTION){
             HailoDetectionPtr detection = std::dynamic_pointer_cast<HailoDetection>(obj);
             std::cout << detection->get_label() << " detected" << " in stream" << source_number << std::endl;
         }
     }
-
     return GST_PAD_PROBE_OK;
 }
 
@@ -298,11 +347,6 @@ void set_callbacks(GstElement *pipeline, int number_of_sources, Buffer_from_pipl
             g_signal_connect(GST_APP_SINK(appsink), "new-sample", G_CALLBACK(new_sample_callback), GINT_TO_POINTER(i));
             gst_object_unref(appsink);
         }
-        // // recive fps-measurements from fpsdisplaysink 
-        // GstElement *fpsdisplaysink = gst_bin_get_by_name(GST_BIN(pipeline), "fpsdisplaysink"+std::to_string(i).c_str());
-        // if (!fpsdisplaysink) {
-        //     g_printerr("fpsdisplaysink not found\n");
-        // }
 
 
     }
@@ -311,11 +355,11 @@ void set_callbacks(GstElement *pipeline, int number_of_sources, Buffer_from_pipl
 int main(int argc, char* argv[]) {
     add_sigint_handler();
 
-    std::string hef_path = "../resources/yolov5m_wo_spp_60p_nv12_fhd.hef";
-    std::string pp_path = "../resources/libyolo_hailortpp_post.so";
+    std::string hef_path = "/home/guyp/work_space/github/h8/resources/yolov5m_nv12.hef";
+    std::string pp_path = "/home/guyp/work_space/github/h8/resources/libyolo_hailortpp_post.so";
     int base_port = 5000;
     int number_of_devices = 1;
-    int number_of_sources = 1;
+    int number_of_sources = 4;
     Buffer_from_piplne_method read_from = Buffer_from_piplne_method::probe;
 
     std::string str_pipline;
