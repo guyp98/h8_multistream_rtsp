@@ -161,17 +161,22 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
             "! h264parse "
             "! avdec_h264 "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
-            "! videoscale qos=false n-threads=2 "
-            "! video/x-raw, pixel-aspect-ratio=1/1 "
-            "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! videoconvert n-threads=2 qos=false "
             "! video/x-raw, format=NV12 "
-            "! queue name=hailonet"+ std::to_string(i) +"_queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
+            "! hailotilecropper internal-offset=true name=cropper"+ std::to_string(i) +" tiling-mode=0 tiles-along-x-axis=1 tiles-along-y-axis=1 overlap-x-axis=0.0 overlap-y-axis=0.0 "
+            " hailotileaggregator flatten-detections=true iou-threshold=0.3 border-threshold=0.1 name=agg"+ std::to_string(i) +" cropper"+ std::to_string(i) +". "
+            "! queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 "
+            "! agg"+ std::to_string(i) +". cropper"+ std::to_string(i) +". "
+            
+            "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
+            "! video/x-raw, pixel-aspect-ratio=16/9 "
             "! hailonet name=hailonet"+std::to_string(i)+" hef-path=" + hef_path +
             " batch-size=1 nms-score-threshold=0.3 nms-iou-threshold=0.60 output-format-type=HAILO_FORMAT_TYPE_FLOAT32 vdevice-key="+ std::to_string(vdevice_key) +" "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! hailofilter name=hailofilter"+std::to_string(i)+" function-name=yolov5 so-path=" + pp_path + " config-path=null qos=false "
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
+            
+            "! agg"+ std::to_string(i) +". agg"+ std::to_string(i) +"."
             ""+sink+""
             "        "
             ;
