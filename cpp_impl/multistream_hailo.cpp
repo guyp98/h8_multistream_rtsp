@@ -306,6 +306,14 @@ int main(int argc, char* argv[]) {
 
     std::string hef_path = "../resources/yolov5m_nv12.hef";
     std::string pp_path = "../resources/libyolo_hailortpp_post.so";
+    
+    if (argc > 1) {
+        hef_path = argv[1];
+    }
+    if (argc > 2) {
+        pp_path = argv[2];
+    }
+    
     int base_port = 5000;
     int number_of_devices = 1;
     int number_of_sources = 4;
