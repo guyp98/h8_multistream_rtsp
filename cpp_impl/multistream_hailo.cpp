@@ -138,6 +138,10 @@ GstFlowReturn wait_for_end_of_pipeline(GstElement *pipeline)
 void create_pipline(int number_of_sources, int base_port, int number_of_devices, std::string hef_path, std::string pp_path, Buffer_from_piplne_method read_from, std::string& play_pipeline) {
     std::stringstream concatenated_pipeline;
 
+    std::string pipeline_src = 
+            " v4l2src device=/dev/video0 "
+            "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
+            "! tee name=t_src ";
     // Loop to concatenate the string four times
     for (int i = 1; i < number_of_sources+1; i++) {
         int current_port = base_port + i - 1;
@@ -160,15 +164,8 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
 
         
         std::string current_pipeline = 
-            "udpsrc port="+ std::to_string(current_port) +" address=127.0.0.1 "
-            "! application/x-rtp,encoding-name=H264 "
-            "! queue "
-            "! rtpjitterbuffer mode=0 "
-            "! queue "
-            "! rtph264depay "
-            "! queue "
-            "! h264parse "
-            "! avdec_h264 "
+            "t_src. "
+            "! videoconvert "        
             "! queue leaky=no max-size-buffers=30 max-size-bytes=0 max-size-time=0 "
             "! videoscale qos=false n-threads=2 "
             "! video/x-raw, pixel-aspect-ratio=1/1 "
@@ -185,8 +182,9 @@ void create_pipline(int number_of_sources, int base_port, int number_of_devices,
             ;
         concatenated_pipeline << current_pipeline;
     }
-
-    play_pipeline += concatenated_pipeline.str();
+    pipeline_src += concatenated_pipeline.str();
+    play_pipeline = pipeline_src;
+    // play_pipeline += concatenated_pipeline.str();
 
 
 }   
@@ -313,7 +311,7 @@ int main(int argc, char* argv[]) {
     if (argc > 2) {
         pp_path = argv[2];
     }
-    
+
     int base_port = 5000;
     int number_of_devices = 1;
     int number_of_sources = 4;
